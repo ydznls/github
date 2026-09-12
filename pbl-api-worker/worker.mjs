@@ -88,15 +88,23 @@ export default {
       const documents = Array.isArray(raw.documents) ? raw.documents.slice(0, 20).map((item) => {
         const text = cleanText(item?.text, Math.min(50000, remaining));
         remaining -= text.length;
-        return { name: cleanText(item?.name, 180) || "未命名文献", text };
+        return {
+          name: cleanText(item?.name, 180) || "未命名文献",
+          text,
+          kind: item?.kind === "textbook" ? "textbook" : "frontier",
+          discipline: item?.discipline === "internal" ? "内科学" : item?.discipline === "surgery" ? "外科学" : "",
+          questionNumber: Number(item?.questionNumber) || 0,
+        };
       }).filter((item) => item.text) : [];
 
       if (!caseText || !questions.length) return json({ error: "病例和问题不能为空" }, 400, origin);
       if (!documents.length) return json({ error: "请至少提供一篇可读取的文献" }, 400, origin);
 
-      const sourceText = documents.map((document, index) => `【文献 ${index + 1}：${document.name}】\n${document.text}`).join("\n\n");
+      const textbookDocuments = documents.filter((document) => document.kind === "textbook");
+      const frontierDocuments = documents.filter((document) => document.kind === "frontier");
+      const sourceText = documents.map((document, index) => `【资料 ${index + 1}｜${document.kind === "textbook" ? `教材·${document.discipline || "未分类"}` : `前沿文献·问题${document.questionNumber || "未标注"}`}｜${document.name}】\n${document.text}`).join("\n\n");
       const system = `你是医学 PBL 循证汇报助手。只能依据用户提供的病例和文献写作，不得捏造研究、数值、指南推荐或参考文献。证据不足时必须明确写“所提供文献不足以确定”。输出必须是合法 JSON，不要使用 Markdown 代码块。`;
-      const prompt = `请为以下 PBL 病例生成演示文稿正文。每个问题必须恰好生成 6 张内容页，系统会另行添加问题序号页，因此不要生成封面、序号页或结束页。\n\n每个问题的 6 页依次承担这些功能：\n1. 解释问题和核心概念\n2. 说明相关医学基础或机制\n3. 提取病例中的相关线索\n4. 说明检测标准、判断标准或治疗选择标准\n5. 综合所提供的文献证据\n6. 直接回答问题并说明适用边界\n\n每页 body 使用清晰中文，建议 180 至 450 字。sourceRefs 只能填写下方真实提供的文献名称。\n\n返回格式：\n{"deckTitle":"标题","sections":[{"questionNumber":1,"question":"问题原文","slides":[{"title":"页标题","body":"正文","sourceRefs":["文献名称"]}]}]}\n\n病例：\n${caseText}\n\n关键词：\n${keywords}\n\n问题：\n${questions.map((question) => `${question.number}. ${question.text}`).join("\n")}\n\n文献：\n${sourceText}`;
+      const prompt = `请为以下 PBL 病例生成演示文稿正文。每个问题必须恰好生成 6 张内容页，系统会另行添加问题序号页，因此不要生成封面、序号页或结束页。\n\n必须执行“教材约70%、前沿约30%”的结构：\n1. 教材定义与问题解释（只从内科学/外科学教材提取）\n2. 教材中的病因、机制或病理生理（只从教材提取）\n3. 教材中的临床表现、病例对应与鉴别要点（只从教材提取）\n4. 教材中的检测标准、诊断标准或常规治疗原则（只从教材提取）\n5. 当前前沿治疗：综合归入本问题的指南、系统评价或临床研究\n6. 直接回答问题：以教材结论为基础，并用前沿证据补充变化、获益、局限与适用人群\n\n教材页不得引用前沿文献替代教材；前沿页不得把其他问题的文献混入本题。如果某类资料不足，对应页面必须明确写“所提供的教材/前沿文献不足以确定”，不得用常识补写。教材共 ${textbookDocuments.length} 份，前沿资料共 ${frontierDocuments.length} 份。每页 body 使用清晰中文，建议 180 至 450 字。sourceRefs 只能填写下方真实提供的资料名称。\n\n返回格式：\n{"deckTitle":"标题","sections":[{"questionNumber":1,"question":"问题原文","slides":[{"title":"页标题","body":"正文","sourceRefs":["资料名称"]}]}]}\n\n病例：\n${caseText}\n\n关键词：\n${keywords}\n\n问题：\n${questions.map((question) => `${question.number}. ${question.text}`).join("\n")}\n\n分类资料：\n${sourceText}`;
 
       const modelResponse = await fetch(modelUrl(env), {
         method: "POST",
