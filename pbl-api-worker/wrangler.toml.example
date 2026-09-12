@@ -1,0 +1,13 @@
+name = "pbl-copilot-api"
+main = "worker.mjs"
+compatibility_date = "2026-09-12"
+
+[vars]
+MODEL_API_BASE = "https://api.deepseek.com"
+MODEL_NAME = "deepseek-v4-flash"
+ALLOWED_ORIGIN = "https://ydznls.github.io"
+MAX_OUTPUT_TOKENS = "12000"
+
+# 不要把 MODEL_API_KEY 写入本文件。
+# 部署后通过 Cloudflare Secret 保存：wrangler secret put MODEL_API_KEY
+# 同样设置网页访问口令：wrangler secret put APP_ACCESS_TOKEN
