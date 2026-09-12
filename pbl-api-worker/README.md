@@ -11,6 +11,14 @@
 5. 使用 `wrangler deploy` 部署。
 6. 把部署得到的 HTTPS 地址和访问口令填入 PBL Copilot，点击“测试连接”。
 
+## 私有教材库
+
+1. 登录 Cloudflare 后创建 D1 数据库 `pbl-textbook-library`。
+2. 将返回的数据库 ID 写入 `wrangler.toml` 的 `TEXTBOOK_DB` 绑定。
+3. 在本地教材库运行 `export_d1_sql.py`，生成仅供私有导入的 `textbook_library_d1.sql`。
+4. 使用 `wrangler d1 execute pbl-textbook-library --remote --file=../textbook-library/textbook_library_d1.sql --yes` 导入。
+5. `/health` 会返回教材库连接状态和可检索教材数量。公开网页只能通过带访问口令的 Worker 检索相关片段，无法直接下载教材数据库。
+
 如果供应商给出完整的聊天接口地址，可以设置 `MODEL_API_URL`，它会覆盖 `MODEL_API_BASE`。
 
 ## 前端接口

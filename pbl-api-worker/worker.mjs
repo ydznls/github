@@ -33,6 +33,61 @@ function configuredModels(env) {
   };
 }
 
+function countOccurrences(text, term) {
+  if (!term) return 0;
+  return text.toLocaleLowerCase().split(term.toLocaleLowerCase()).length - 1;
+}
+
+async function textbookLibraryStatus(env) {
+  if (!env.TEXTBOOK_DB) return { connected: false, books: 0 };
+  try {
+    const row = await env.TEXTBOOK_DB.prepare("SELECT COUNT(*) AS books FROM books WHERE searchable = 1").first();
+    return { connected: true, books: Number(row?.books || 0) };
+  } catch {
+    return { connected: false, books: 0 };
+  }
+}
+
+async function retrieveTextbookDocuments(env, questions) {
+  if (!env.TEXTBOOK_DB) return [];
+  const requests = [];
+  for (const question of questions) {
+    for (const term of question.terms.slice(0, 4)) {
+      requests.push({
+        questionNumber: question.number,
+        term,
+        statement: env.TEXTBOOK_DB.prepare("SELECT p.book_id, b.title, p.page_number, p.text FROM pages p JOIN books b ON b.id = p.book_id WHERE b.searchable = 1 AND p.text LIKE ? LIMIT 30").bind(`%${term}%`),
+      });
+    }
+  }
+  if (!requests.length) return [];
+  const responses = await env.TEXTBOOK_DB.batch(requests.map((request) => request.statement));
+  const candidates = new Map();
+  responses.forEach((response, index) => {
+    const request = requests[index];
+    for (const row of response?.results || []) {
+      const key = `${request.questionNumber}:${row.book_id}:${row.page_number}`;
+      const old = candidates.get(key) || { questionNumber: request.questionNumber, bookId: row.book_id, title: row.title, pageNumber: row.page_number, text: row.text, score: 0, matched: new Set() };
+      old.score += Math.max(1, countOccurrences(String(row.text || ""), request.term));
+      old.matched.add(request.term);
+      candidates.set(key, old);
+    }
+  });
+  const documents = [];
+  for (const question of questions) {
+    const ranked = [...candidates.values()].filter((item) => item.questionNumber === question.number).sort((a, b) => b.matched.size - a.matched.size || b.score - a.score || a.pageNumber - b.pageNumber);
+    const perBook = new Map();
+    for (const item of ranked) {
+      if (documents.filter((document) => document.questionNumber === question.number).length >= 8) break;
+      const used = perBook.get(item.bookId) || 0;
+      if (used >= 3) continue;
+      perBook.set(item.bookId, used + 1);
+      documents.push({ name: `${item.title} 第${item.pageNumber}页`, text: cleanText(item.text, 2800), kind: "textbook", discipline: item.title, questionNumber: question.number });
+    }
+  }
+  return documents;
+}
+
 function parseModelJson(content) {
   const text = typeof content === "string" ? content : Array.isArray(content) ? content.map((part) => part?.text || "").join("") : "";
   const fenced = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
@@ -71,7 +126,7 @@ export default {
 
     if (request.method === "GET" && url.pathname === "/health") {
       if (!env.MODEL_API_KEY) return json({ ok: false, error: "服务端尚未配置模型密钥" }, 503, origin);
-      return json({ ok: true, models: configuredModels(env) }, 200, origin);
+      return json({ ok: true, models: configuredModels(env), textbookLibrary: await textbookLibraryStatus(env) }, 200, origin);
     }
 
     if (request.method !== "POST" || url.pathname !== "/generate") return json({ error: "Not found" }, 404, origin);
@@ -83,9 +138,11 @@ export default {
       const modelName = configuredModels(env)[modelTier];
       const caseText = cleanText(raw.caseText, 20000);
       const keywords = cleanText(raw.keywords, 2000);
-      const questions = Array.isArray(raw.questions) ? raw.questions.slice(0, 4).map((item) => ({ number: Number(item?.number), text: cleanText(item?.text, 800) })).filter((item) => item.number >= 1 && item.number <= 4 && item.text) : [];
-      let remaining = 180000;
-      const documents = Array.isArray(raw.documents) ? raw.documents.slice(0, 20).map((item) => {
+      const questions = Array.isArray(raw.questions) ? raw.questions.slice(0, 4).map((item) => ({ number: Number(item?.number), text: cleanText(item?.text, 800), terms: Array.isArray(item?.terms) ? item.terms.map((term) => cleanText(term, 60)).filter((term) => term.length > 1).slice(0, 6) : [] })).filter((item) => item.number >= 1 && item.number <= 4 && item.text) : [];
+      const fallbackTerms = keywords.split(/[，,、;；\n]/).map((term) => cleanText(term, 60)).filter((term) => term.length > 1).slice(0, 4);
+      questions.forEach((question) => { if (!question.terms.length) question.terms = fallbackTerms; });
+      let remaining = 110000;
+      let documents = Array.isArray(raw.documents) ? raw.documents.slice(0, 20).map((item) => {
         const text = cleanText(item?.text, Math.min(50000, remaining));
         remaining -= text.length;
         return {
@@ -98,7 +155,9 @@ export default {
       }).filter((item) => item.text) : [];
 
       if (!caseText || !questions.length) return json({ error: "病例和问题不能为空" }, 400, origin);
-      if (!documents.length) return json({ error: "请至少提供一篇可读取的文献" }, 400, origin);
+      const libraryDocuments = await retrieveTextbookDocuments(env, questions);
+      documents = [...documents, ...libraryDocuments];
+      if (!documents.length) return json({ error: "教材库没有找到相关内容，且未提供可读取的文献" }, 400, origin);
 
       const textbookDocuments = documents.filter((document) => document.kind === "textbook");
       const frontierDocuments = documents.filter((document) => document.kind === "frontier");

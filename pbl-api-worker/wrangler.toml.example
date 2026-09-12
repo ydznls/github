@@ -9,6 +9,11 @@ PRO_MODEL_NAME = "deepseek-v4-pro"
 ALLOWED_ORIGIN = "https://ydznls.github.io"
 MAX_OUTPUT_TOKENS = "12000"
 
+[[d1_databases]]
+binding = "TEXTBOOK_DB"
+database_name = "pbl-textbook-library"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
 # 不要把 MODEL_API_KEY 写入本文件。
 # 部署后通过 Cloudflare Secret 保存：wrangler secret put MODEL_API_KEY
 # 同样设置网页访问口令：wrangler secret put APP_ACCESS_TOKEN
