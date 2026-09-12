@@ -26,6 +26,13 @@ function modelUrl(env) {
   return `${base}/chat/completions`;
 }
 
+function configuredModels(env) {
+  return {
+    flash: env.FLASH_MODEL_NAME || "deepseek-v4-flash",
+    pro: env.PRO_MODEL_NAME || "deepseek-v4-pro",
+  };
+}
+
 function parseModelJson(content) {
   const text = typeof content === "string" ? content : Array.isArray(content) ? content.map((part) => part?.text || "").join("") : "";
   const fenced = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
@@ -63,15 +70,17 @@ export default {
     if (request.headers.get("x-pbl-access") !== env.APP_ACCESS_TOKEN) return json({ ok: false, error: "访问口令不正确" }, 401, origin);
 
     if (request.method === "GET" && url.pathname === "/health") {
-      if (!env.MODEL_API_KEY || !env.MODEL_NAME) return json({ ok: false, error: "服务端尚未配置模型密钥或模型名称" }, 503, origin);
-      return json({ ok: true, model: env.MODEL_NAME }, 200, origin);
+      if (!env.MODEL_API_KEY) return json({ ok: false, error: "服务端尚未配置模型密钥" }, 503, origin);
+      return json({ ok: true, models: configuredModels(env) }, 200, origin);
     }
 
     if (request.method !== "POST" || url.pathname !== "/generate") return json({ error: "Not found" }, 404, origin);
-    if (!env.MODEL_API_KEY || !env.MODEL_NAME) return json({ error: "服务端尚未配置 MODEL_API_KEY 或 MODEL_NAME" }, 503, origin);
+    if (!env.MODEL_API_KEY) return json({ error: "服务端尚未配置 MODEL_API_KEY" }, 503, origin);
 
     try {
       const raw = await request.json();
+      const modelTier = raw.modelTier === "pro" ? "pro" : "flash";
+      const modelName = configuredModels(env)[modelTier];
       const caseText = cleanText(raw.caseText, 20000);
       const keywords = cleanText(raw.keywords, 2000);
       const questions = Array.isArray(raw.questions) ? raw.questions.slice(0, 4).map((item) => ({ number: Number(item?.number), text: cleanText(item?.text, 800) })).filter((item) => item.number >= 1 && item.number <= 4 && item.text) : [];
@@ -92,7 +101,7 @@ export default {
       const modelResponse = await fetch(modelUrl(env), {
         method: "POST",
         headers: { "content-type": "application/json", "authorization": `Bearer ${env.MODEL_API_KEY}` },
-        body: JSON.stringify({ model: env.MODEL_NAME, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], temperature: 0.2, max_tokens: Number(env.MAX_OUTPUT_TOKENS || 12000) }),
+        body: JSON.stringify({ model: modelName, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], temperature: 0.2, max_tokens: Number(env.MAX_OUTPUT_TOKENS || 12000) }),
       });
       const modelResult = await modelResponse.json().catch(() => ({}));
       if (!modelResponse.ok) {
@@ -102,7 +111,7 @@ export default {
 
       const content = modelResult?.choices?.[0]?.message?.content;
       const deck = validateDeck(parseModelJson(content), questions);
-      return json({ ...deck, model: env.MODEL_NAME, usage: { inputTokens: modelResult?.usage?.prompt_tokens, outputTokens: modelResult?.usage?.completion_tokens } }, 200, origin);
+      return json({ ...deck, model: modelName, modelTier, usage: { inputTokens: modelResult?.usage?.prompt_tokens, outputTokens: modelResult?.usage?.completion_tokens } }, 200, origin);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : "生成失败" }, 500, origin);
     }
