@@ -1,11 +1,11 @@
 # PBL Copilot AI 网关
 
-这个网关把公开网页与国内大模型隔开，避免 API Key 出现在浏览器代码中。它兼容提供 OpenAI `chat/completions` 接口的模型服务，例如 DeepSeek、通义千问兼容模式、豆包方舟兼容接口和智谱兼容接口。
+这个网关把公开网页与 DeepSeek 隔开，避免 API Key 出现在浏览器代码中。当前默认使用 `https://api.deepseek.com` 和 `deepseek-v4-pro`，也可以通过环境变量切换为其他 OpenAI 兼容模型。
 
 ## 配置
 
 1. 将 `wrangler.toml.example` 复制为 `wrangler.toml`。
-2. 修改 `MODEL_API_BASE` 和 `MODEL_NAME`。
+2. 默认配置已经设为 DeepSeek V4 Pro，无需修改 `MODEL_API_BASE` 和 `MODEL_NAME`。
 3. 使用 `wrangler secret put MODEL_API_KEY` 保存模型密钥。不要把密钥提交到 GitHub。
 4. 使用 `wrangler secret put APP_ACCESS_TOKEN` 设置你自己的网页访问口令，避免其他人消耗你的模型额度。
 5. 使用 `wrangler deploy` 部署。

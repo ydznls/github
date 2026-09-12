@@ -4,7 +4,7 @@ compatibility_date = "2026-09-12"
 
 [vars]
 MODEL_API_BASE = "https://api.deepseek.com"
-MODEL_NAME = "deepseek-v4-flash"
+MODEL_NAME = "deepseek-v4-pro"
 ALLOWED_ORIGIN = "https://ydznls.github.io"
 MAX_OUTPUT_TOKENS = "12000"
 
